@@ -2,19 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/update-appointments",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/process-payouts",
-      "schedule": "0 15 * * 1"
-    },
-    {
-      "path": "/api/cron/process-payouts",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/process-payouts",
-      "schedule": "0 */6 * * *"
+      "schedule": "0 1 * * *"
     }
   ]
 }
