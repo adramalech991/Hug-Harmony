@@ -1,0 +1,1165 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String  @id @default(auto()) @map("_id") @db.ObjectId
+  email          String  @unique
+  username       String? @unique
+  usernameLower  String? @unique
+  name           String?
+  firstName      String?
+  lastName       String?
+  password       String?
+  phoneNumber    String?
+  heardFrom      String?
+  heardFromOther String?
+
+  emailVerified   Boolean   @default(false)
+  emailVerifiedAt DateTime?
+
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  lastLoginIp         String?
+
+  // OAuth Provider IDs
+  googleId   String?
+  appleId    String?
+  facebookId String?
+
+  primaryAuthMethod String? // "credentials" | "google" | "apple" | "facebook"
+
+  profileImage       String?
+  location           String?
+  location2          String?
+  biography          String?
+  relationshipStatus String?
+  orientation        String?
+  height             String?
+  ethnicity          String?
+  zodiacSign         String?
+  favoriteColor      String?
+  favoriteMedia      String?
+  petOwnership       String?
+  createdAt          DateTime  @default(now())
+  lastOnline         DateTime?
+  isAdmin            Boolean   @default(false)
+  isModerator        Boolean   @default(false)
+  status             String    @default("active")
+  timezone           String    @default("UTC") // IANA Timezone ID
+  sex                String?
+
+  // Relations
+  PasswordResetToken        PasswordResetToken[]
+  appointments              Appointment[]             @relation("UserAppointments")
+  sentMessages              Message[]                 @relation("SentMessagesUser")
+  receivedMessages          Message[]                 @relation("ReceivedMessagesUser")
+  conversations1            Conversation[]            @relation("User1Conversations")
+  conversations2            Conversation[]            @relation("User2Conversations")
+  posts                     Post[]                    @relation("UserPosts")
+  replies                   Reply[]                   @relation("UserReplies")
+  professionalApplication   ProfessionalApplication?
+  VideoSession              VideoSession[]
+  ProfileVisit              ProfileVisit[]            @relation("Visitor")
+  Proposal                  Proposal[]                @relation
+  reviews                   Review[]                  @relation("UserReviews")
+  surveyResponses           SurveyResponse[]          @relation("UserSurveys")
+  securityLogs              SecurityLog[]             @relation("UserSecurityLogs")
+  reported                  Report[]                  @relation("ReportedUser")
+  reports                   Report[]                  @relation("Reporter")
+  notesAuthored             Note[]                    @relation("AuthorNotes")
+  notesReceived             Note[]                    @relation("TargetUserNotes")
+  profileVisits             ProfileVisit[]            @relation("VisitedUser")
+  cart                      Cart?
+  orders                    Order[]
+  trainingVideoWatches      TrainingVideoWatch[]
+  photos                    UserPhoto[]
+  quizAttempts              QuizAttempt[]
+  EmailVerificationToken    EmailVerificationToken[]
+  blocking                  Block[]                   @relation("UserBlocking")
+  blockedBy                 Block[]                   @relation("UserBlocked")
+  clientConfirmations       AppointmentConfirmation[] @relation("ClientConfirmations")
+  professionalConfirmations AppointmentConfirmation[] @relation("ProfessionalUserConfirmations")
+  feedbacks                 Feedback[]                @relation("UserFeedback")
+  adminFeedbackResponses    Feedback[]                @relation("AdminFeedbackResponses")
+  adminReportResponses      Report[]                  @relation("AdminReportResponses")
+  professionalPosts         ProfessionalPost[]        @relation("UserProfessionalPosts")
+  professionalReplies       ProfessionalReply[]       @relation("UserProfessionalReplies")
+  
+  // Moderator-related relations
+  moderationActions         ModerationAction[]        @relation("ModeratorActions")
+  moderationActionsReceived ModerationAction[]        @relation("UserModerationActions")
+  conversationBlocks        ConversationBlock[]       @relation("ModeratorBlocks")
+  restrictionsImposed       TemporaryRestriction[]    @relation("ModeratorRestrictions")
+  restrictionsReceived      TemporaryRestriction[]    @relation("UserRestrictions")
+  warningsIssued            UserWarning[]             @relation("ModeratorWarnings")
+  warningsReceived          UserWarning[]             @relation("UserWarnings")
+
+  // Notification relations
+  notificationsReceived     Notification[]            @relation("UserNotifications")
+  notificationsSent         Notification[]            @relation("SentNotifications")
+  pushSubscriptions         PushSubscription[]
+}
+
+model PasswordResetToken {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @unique @db.ObjectId
+  token     String   @unique
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model Appointment {
+  id                  String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId              String?           @db.ObjectId
+  professionalId      String            @db.ObjectId
+  startTime           DateTime
+  endTime             DateTime
+  status              String            @default("upcoming")
+  disputeStatus       String            @default("none")
+  disputeReason       String?
+  adminNotes          String?
+  rate                Float?
+  adjustedRate        Float?
+  modificationHistory Json?
+  venue               AppointmentVenue?
+  createdAt           DateTime          @default(now())
+  user                User?             @relation("UserAppointments", fields: [userId], references: [id], onDelete: SetNull)
+  professional        Professional      @relation("ProfessionalAppointments", fields: [professionalId], references: [id], onDelete: Cascade)
+  payment             Payment?
+  cancelRequestedBy   String?           @db.ObjectId
+  cancelRequestedAt   DateTime?
+  videoSessions       VideoSession[]
+
+  confirmation AppointmentConfirmation?
+  earning      Earning?
+
+  @@index([professionalId, startTime, endTime])
+}
+
+model Conversation {
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId1   String     @db.ObjectId
+  userId2   String     @db.ObjectId
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user1     User       @relation("User1Conversations", fields: [userId1], references: [id], onDelete: Cascade)
+  user2     User       @relation("User2Conversations", fields: [userId2], references: [id], onDelete: Cascade)
+  messages  Message[]  @relation("ConversationMessages")
+  readBy    Json?
+  Proposal  Proposal[] @relation
+}
+
+model Professional {
+  id                   String     @id @default(auto()) @map("_id") @db.ObjectId
+  name                 String
+  image                String?
+  rating               Float?
+  reviewCount          Int?
+  rate                 Float?
+  offersVideo          Boolean    @default(false)
+  videoRate            Float?
+  biography            String?
+  companyCutPercentage Float?
+  venue                VenueType? @default(both)
+  createdAt            DateTime   @default(now())
+  location             String?
+  location2            String?
+  languages            String[]   @default([])
+  isVerified           Boolean    @default(false)
+  sex                  String?
+
+  // NEW: Stripe payment info for fee collection
+  stripeCustomerId      String? // Stripe Customer ID
+  stripePaymentMethodId String? // Default payment method ID
+  cardLast4             String? // Last 4 digits for display
+  cardBrand             String? // visa, mastercard, etc.
+  cardExpiryMonth       Int?
+  cardExpiryYear        Int?
+  paymentMethodAddedAt  DateTime?
+
+  // NEW: Payment status flags
+  hasValidPaymentMethod Boolean   @default(false)
+  paymentBlockedAt      DateTime? // Set when charge fails
+  paymentBlockReason    String? // Why they're blocked
+
+  paymentAcceptanceMethods String[] @default([])
+
+  appointments             Appointment[]             @relation("ProfessionalAppointments")
+  applications             ProfessionalApplication[] @relation
+  VideoSession             VideoSession[]
+  availability             Availability[]            @relation
+  profileVisits            ProfileVisit[]            @relation("Visitee")
+  Proposal                 Proposal[]                @relation
+  reviews                  Review[]                  @relation("ProfessionalReviews")
+  discounts                Discount[]                @relation
+  reported                 Report[]                  @relation("ReportedProfessional")
+  notesReceived            Note[]                    @relation("TargetProfessionalNotes")
+  earnings                 Earning[]
+  feeCharges               FeeCharge[] // NEW: replaces Payout
+  appointmentConfirmations AppointmentConfirmation[]
+  availabilityOverrides    AvailabilityOverride[]    @relation
+
+  posts                    ProfessionalPost[]        @relation("ProfessionalPosts")
+  replies                  ProfessionalReply[]       @relation("ProfessionalReplies")
+  
+  // Moderator-related relations
+  moderationActionsReceived ModerationAction[]       @relation("ProfessionalModerationActions")
+}
+
+model Post {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  title     String
+  content   String
+  category  String
+  authorId  String   @db.ObjectId
+  author    User     @relation("UserPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  replies   Reply[]  @relation("PostReplies")
+}
+
+model Reply {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  content       String
+  postId        String   @db.ObjectId
+  authorId      String   @db.ObjectId
+  parentReplyId String?  @db.ObjectId
+  post          Post     @relation("PostReplies", fields: [postId], references: [id], onDelete: Cascade)
+  author        User     @relation("UserReplies", fields: [authorId], references: [id], onDelete: Cascade)
+  parentReply   Reply?   @relation("ReplyReplies", fields: [parentReplyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  childReplies  Reply[]  @relation("ReplyReplies")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ProfessionalApplication {
+  id     String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId String    @unique @db.ObjectId
+  rate       Float
+  offersVideo Boolean   @default(false)
+  videoRate   Float?
+  venue      VenueType
+
+  status         ProOnboardingStatus @default(FORM_PENDING)
+  alreadyExperienced Boolean             @default(false)
+  submittedAt    DateTime?
+  videoWatchedAt DateTime?
+  quizPassedAt   DateTime?
+  isBadgePaid    Boolean             @default(false)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  professionalId String?       @db.ObjectId
+
+  quizAttempts ProQuizAttempt[]    @relation("ApplicationQuizAttempts")
+  videoWatch   TrainingVideoWatch? @relation("ProOnboardingVideo")
+
+  @@index([status])
+  @@index([professionalId])
+}
+
+model ProQuizAttempt {
+  id             String                  @id @default(auto()) @map("_id") @db.ObjectId
+  applicationId  String                  @db.ObjectId
+  quizId         String?                 @db.ObjectId
+  score          Float
+  passed         Boolean
+  answers        Json
+  attemptedAt    DateTime                @default(now())
+  nextEligibleAt DateTime?
+  application    ProfessionalApplication @relation("ApplicationQuizAttempts", fields: [applicationId], references: [id], onDelete: Cascade)
+  quiz           Quiz?                   @relation("QuizProAttempts", fields: [quizId], references: [id])
+
+  @@index([applicationId])
+  @@index([nextEligibleAt])
+  @@index([quizId])
+}
+
+enum ProOnboardingStatus {
+  FORM_PENDING
+  FORM_SUBMITTED
+  VIDEO_PENDING
+  QUIZ_PENDING
+  QUIZ_PASSED
+  QUIZ_FAILED
+  ADMIN_REVIEW
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+model VideoSession {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  // Chime Meeting Info
+  meetingId         String  @unique
+  externalMeetingId String? @unique
+  mediaRegion       String  @default("us-east-2")
+  mediaPlacement    Json?
+
+  // Participants
+  userId         String @db.ObjectId
+  professionalId String @db.ObjectId
+
+  // Optional: Link to appointment (one-to-many now)
+  appointmentId String? @db.ObjectId
+
+  // Session Info
+  scheduledStart DateTime?
+  actualStart    DateTime?
+  actualEnd      DateTime?
+  duration       Int?
+
+  // Status
+  status    VideoSessionStatus @default(SCHEDULED)
+  endReason String?
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  professional Professional    @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  appointment  Appointment?    @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  attendees    VideoAttendee[]
+
+  @@index([status])
+  @@index([scheduledStart])
+  @@index([userId])
+  @@index([professionalId])
+  @@index([appointmentId])
+}
+
+model VideoAttendee {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  videoSessionId String @db.ObjectId
+
+  // Chime Attendee Info
+  attendeeId     String
+  externalUserId String
+  joinToken      String
+
+  // Participant Info
+  role        String @default("participant")
+  displayName String
+
+  // Tracking
+  joinedAt DateTime?
+  leftAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  videoSession VideoSession @relation(fields: [videoSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([videoSessionId, externalUserId])
+  @@index([attendeeId])
+}
+
+enum VideoSessionStatus {
+  SCHEDULED
+  WAITING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  FAILED
+}
+
+model Availability {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  professionalId String       @db.ObjectId
+  dayOfWeek      Int
+  slots          String[]
+  breakDuration  Int?         @default(30)
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@unique([professionalId, dayOfWeek], name: "professionalId_dayOfWeek")
+}
+
+model AvailabilityOverride {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  professionalId String       @db.ObjectId
+  startDate      DateTime
+  endDate        DateTime
+  reason         String?
+  items          Json? // Optional: for partial day blocks in future
+  createdAt      DateTime     @default(now())
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId])
+  @@index([startDate, endDate])
+}
+
+model ProfileVisit {
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String        @db.ObjectId
+  professionalId String?       @db.ObjectId
+  visitedUserId  String?       @db.ObjectId
+  createdAt      DateTime      @default(now())
+  user           User          @relation("Visitor", fields: [userId], references: [id], onDelete: Cascade)
+  professional   Professional? @relation("Visitee", fields: [professionalId], references: [id], onDelete: SetNull)
+  visitedUser    User?         @relation("VisitedUser", fields: [visitedUserId], references: [id], onDelete: SetNull)
+}
+
+model Message {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  text           String
+  isAudio        Boolean      @default(false)
+  isSystem       Boolean      @default(false)
+  imageUrl       String?
+  senderId       String       @db.ObjectId
+  recipientId          String             @db.ObjectId
+  conversationId       String             @db.ObjectId
+  createdAt            DateTime           @default(now())
+  deletedAt            DateTime?
+  proposalId           String?            @db.ObjectId
+  travelCalculationId  String?            @db.ObjectId
+  senderUser           User               @relation("SentMessagesUser", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientUser        User               @relation("ReceivedMessagesUser", fields: [recipientId], references: [id], onDelete: Cascade)
+  conversation         Conversation       @relation("ConversationMessages", fields: [conversationId], references: [id], onDelete: Cascade)
+  proposal             Proposal?          @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  travelCalculation    TravelCalculation? @relation(fields: [travelCalculationId], references: [id], onDelete: SetNull)
+}
+
+model TravelCalculation {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  fromAddress     String
+  toAddress       String
+  distanceMiles   Float
+  durationMinutes Float?
+  fee             Float
+  ratePerMile     Float
+  createdAt       DateTime  @default(now())
+  messages        Message[]
+}
+
+model Proposal {
+  id             String            @id @default(auto()) @map("_id") @db.ObjectId
+  professionalId String            @db.ObjectId
+  userId         String            @db.ObjectId
+  conversationId String            @db.ObjectId
+  startTime      DateTime?
+  endTime        DateTime?
+  venue          AppointmentVenue?
+  status         String            @default("pending")
+  initiator      String            @default("professional")
+  createdAt      DateTime          @default(now())
+  professional   Professional      @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messages       Message[]         @relation
+
+  @@index([professionalId, startTime, endTime])
+}
+
+model Review {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  professionalId String       @db.ObjectId
+  reviewerId     String       @db.ObjectId
+  rating         Int
+  feedback       String
+  createdAt      DateTime     @default(now())
+  professional   Professional @relation("ProfessionalReviews", fields: [professionalId], references: [id], onDelete: Cascade)
+  reviewer       User         @relation("UserReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+}
+
+model Discount {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  professionalId String       @db.ObjectId
+  name           String
+  rate           Float
+  discount       Float
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id            String       @id @default(auto()) @map("_id") @db.ObjectId
+  appointmentId String?      @unique @db.ObjectId
+  orderId       String?      @unique @db.ObjectId
+  amount        Float
+  status        String       @default("pending")
+  stripeId      String?
+  createdAt     DateTime     @default(now())
+  notes         String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  order         Order?       @relation("OrderPayment", fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model CompanySettings {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  key       String   @unique
+  value     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SurveyResponse {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  rating    Int
+  feedback  String?
+  createdAt DateTime @default(now())
+  user      User     @relation("UserSurveys", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+}
+
+model SecurityLog {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String?  @db.ObjectId
+  eventType String
+  ipAddress String?
+  details   String
+  timestamp DateTime @default(now())
+  user      User?    @relation("UserSecurityLogs", fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Report {
+  id                     String  @id @default(auto()) @map("_id") @db.ObjectId
+  reporterId             String  @db.ObjectId
+  reportedUserId         String? @db.ObjectId
+  reportedProfessionalId String? @db.ObjectId
+  reason                 String
+  details                String?
+  status                 String  @default("pending") // Keep existing
+
+  // NEW: Add these fields
+  priority         String    @default("normal") // "low" | "normal" | "high" | "urgent"
+  adminResponse    String?
+  adminRespondedBy String?   @db.ObjectId
+  adminRespondedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime?
+
+  // Existing relations
+  reporter             User          @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUser         User?         @relation("ReportedUser", fields: [reportedUserId], references: [id], onDelete: SetNull)
+  reportedProfessional Professional? @relation("ReportedProfessional", fields: [reportedProfessionalId], references: [id], onDelete: SetNull)
+
+  // NEW: Add this relation
+  adminUser User? @relation("AdminReportResponses", fields: [adminRespondedBy], references: [id], onDelete: SetNull)
+
+  @@index([status]) // NEW
+  @@index([createdAt]) // NEW
+}
+
+model Note {
+  id                   String        @id @default(auto()) @map("_id") @db.ObjectId
+  authorId             String        @db.ObjectId
+  targetUserId         String?       @db.ObjectId
+  targetProfessionalId String?       @db.ObjectId
+  content              String
+  createdAt            DateTime      @default(now())
+  author               User          @relation("AuthorNotes", fields: [authorId], references: [id], onDelete: Cascade)
+  targetUser           User?         @relation("TargetUserNotes", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetProfessional   Professional? @relation("TargetProfessionalNotes", fields: [targetProfessionalId], references: [id], onDelete: SetNull)
+}
+
+// VenueType: Used for Professional's capability (can offer host, visit, or both)
+enum VenueType {
+  host
+  visit
+  video
+  both
+}
+
+// AppointmentVenue: Used for actual appointments (must be one specific venue)
+enum AppointmentVenue {
+  host
+  visit
+  video
+}
+
+model Merchandise {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  price       Float
+  image       String?
+  stock       Int         @default(0)
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+}
+
+model Cart {
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String     @unique @db.ObjectId
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CartItem {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  cartId        String      @db.ObjectId
+  merchandiseId String      @db.ObjectId
+  quantity      Int
+  cart          Cart        @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  merchandise   Merchandise @relation(fields: [merchandiseId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, merchandiseId])
+}
+
+model Order {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String      @db.ObjectId
+  totalAmount Float
+  status      String      @default("pending")
+  stripeId    String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       OrderItem[]
+  payment     Payment?    @relation("OrderPayment")
+}
+
+model OrderItem {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  orderId       String      @db.ObjectId
+  merchandiseId String      @db.ObjectId
+  quantity      Int
+  price         Float
+  order         Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  merchandise   Merchandise @relation(fields: [merchandiseId], references: [id], onDelete: Cascade)
+}
+
+model TrainingVideo {
+  id              String               @id @default(auto()) @map("_id") @db.ObjectId
+  name            String
+  url             String
+  durationSec     Int?
+  isActive        Boolean              @default(true)
+  isProOnboarding Boolean              @default(false)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  watches         TrainingVideoWatch[]
+
+  @@index([isActive])
+}
+
+model TrainingVideoWatch {
+  id             String                   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String                   @db.ObjectId
+  videoId        String                   @db.ObjectId
+  watchedSec     Int                      @default(0)
+  isCompleted    Boolean                  @default(false)
+  lastWatchedAt  DateTime                 @updatedAt
+  applicationId  String?                  @unique @db.ObjectId
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video          TrainingVideo            @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  proApplication ProfessionalApplication? @relation("ProOnboardingVideo", fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, videoId])
+  @@index([userId])
+  @@index([videoId])
+}
+
+model UserPhoto {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  url       String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model RateLimitRecord {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  key         String
+  action      String
+  count       Int      @default(1)
+  windowStart DateTime @default(now())
+  expiresAt   DateTime
+
+  @@unique([key, action])
+  @@index([expiresAt])
+}
+
+model Block {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  blockerId String   @db.ObjectId
+  blockedId String   @db.ObjectId
+  createdAt DateTime @default(now())
+
+  blocker User @relation("UserBlocking", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("UserBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+}
+
+model PayoutCycle {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  startDate DateTime // 1st or 16th of month
+  endDate   DateTime // 15th or end of month
+
+  // NEW: Auto-confirm deadline (last day of cycle, end of day)
+  confirmationDeadline DateTime?
+
+  status String @default("active")
+  // active | confirming | processing | completed | failed
+
+  // Processing timestamps
+  autoConfirmRanAt   DateTime? // When auto-confirm job ran
+  feeCollectionRanAt DateTime? // When fee collection started
+  completedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  earnings   Earning[]
+  feeCharges FeeCharge[]
+}
+
+model Earning {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  professionalId String @db.ObjectId
+  appointmentId  String @unique @db.ObjectId
+  cycleId        String @db.ObjectId
+
+  // Amounts (stored as Float for MongoDB compatibility)
+  grossAmount        Float // What professional received from client
+  platformFeePercent Float // % at time of earning (snapshot)
+  platformFeeAmount  Float // What platform will charge professional
+
+  // Session details
+  sessionDurationMinutes Int
+  hourlyRate             Float
+  sessionStartTime       DateTime
+  sessionEndTime         DateTime
+
+  // Status tracking
+  status String @default("pending")
+  // pending | confirmed | not_occurred | disputed | charged | waived
+
+  // NEW: Link to fee charge when processed
+  feeChargeId String? @db.ObjectId
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  appointment  Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  cycle        PayoutCycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  feeCharge    FeeCharge?   @relation(fields: [feeChargeId], references: [id])
+
+  @@index([professionalId])
+  @@index([cycleId])
+  @@index([status])
+  @@index([feeChargeId])
+}
+
+model FeeCharge {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  professionalId String @db.ObjectId
+  cycleId        String @db.ObjectId
+
+  // Amounts to charge
+  totalGrossEarnings Float // Sum of all confirmed earnings
+  platformFeePercent Float // Rate used (snapshot)
+  amountToCharge     Float // Platform fee total
+
+  earningsCount Int // Number of sessions included
+
+  // Charge status
+  status String @default("pending")
+  // pending | processing | completed | failed | partially_paid | waived
+
+  // Stripe charge details
+  stripePaymentIntentId String?
+  stripeChargeId        String?
+
+  // Retry tracking
+  attemptCount  Int       @default(0)
+  lastAttemptAt DateTime?
+  nextRetryAt   DateTime?
+
+  // Failure info
+  failureCode    String?
+  failureMessage String?
+
+  // Success info
+  chargedAt     DateTime?
+  chargedAmount Float? // Actual amount charged (might differ if partial)
+
+  // Admin actions
+  waivedAt     DateTime?
+  waivedBy     String?   @db.ObjectId // Admin user ID
+  waivedReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  professional Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  cycle        PayoutCycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  earnings     Earning[]
+
+  @@unique([professionalId, cycleId]) // One charge per professional per cycle
+  @@index([professionalId])
+  @@index([cycleId])
+  @@index([status])
+  @@index([nextRetryAt])
+}
+
+model AppointmentConfirmation {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  appointmentId String @unique @db.ObjectId
+
+  // Client (user who booked)
+  clientId          String    @db.ObjectId
+  clientConfirmed   Boolean?
+  clientConfirmedAt DateTime?
+  clientReviewId    String?   @db.ObjectId
+
+  // Professional
+  professionalId          String    @db.ObjectId
+  professionalUserId      String    @db.ObjectId
+  professionalConfirmed   Boolean?
+  professionalConfirmedAt DateTime?
+
+  // Resolution
+  finalStatus String @default("pending")
+  // pending | confirmed | not_occurred | disputed | auto_not_occurred
+
+  // NEW: Auto-confirmation tracking
+  autoResolvedAt    DateTime?
+  autoResolveReason String? // "deadline_passed" | "both_no_response" etc.
+
+  isDisputed        Boolean   @default(false)
+  disputeReason     String?
+  disputeCreatedAt  DateTime?
+  disputeResolvedAt DateTime?
+  disputeResolution String? // admin_confirmed | admin_cancelled
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  appointment      Appointment  @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  client           User         @relation("ClientConfirmations", fields: [clientId], references: [id], onDelete: Cascade)
+  professional     Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  professionalUser User         @relation("ProfessionalUserConfirmations", fields: [professionalUserId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([professionalId])
+  @@index([professionalUserId])
+  @@index([finalStatus])
+}
+
+model Feedback {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+
+  // Feedback content
+  category String // "general" | "bug" | "feature" | "complaint" | "suggestion" | "other"
+  subject  String
+  message  String
+
+  // Status tracking
+  status   String @default("pending") // "pending" | "in_progress" | "resolved" | "closed"
+  priority String @default("normal") // "low" | "normal" | "high" | "urgent"
+
+  // Admin response
+  adminResponse    String?
+  adminRespondedBy String?   @db.ObjectId
+  adminRespondedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user      User  @relation("UserFeedback", fields: [userId], references: [id], onDelete: Cascade)
+  adminUser User? @relation("AdminFeedbackResponses", fields: [adminRespondedBy], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+}
+
+
+model ProfessionalPost {
+  id             String              @id @default(auto()) @map("_id") @db.ObjectId
+  title          String
+  content        String
+  category       String
+  authorId       String              @db.ObjectId
+  professionalId String              @db.ObjectId
+  author         User                @relation("UserProfessionalPosts", fields: [authorId], references: [id], onDelete: Cascade)
+  professional   Professional        @relation("ProfessionalPosts", fields: [professionalId], references: [id], onDelete: Cascade)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  replies        ProfessionalReply[] @relation("ProfessionalPostReplies")
+}
+
+model ProfessionalReply {
+  id             String              @id @default(auto()) @map("_id") @db.ObjectId
+  content        String
+  postId         String              @db.ObjectId
+  authorId       String              @db.ObjectId
+  professionalId String              @db.ObjectId
+  parentReplyId  String?             @db.ObjectId
+  post           ProfessionalPost    @relation("ProfessionalPostReplies", fields: [postId], references: [id], onDelete: Cascade)
+  author         User                @relation("UserProfessionalReplies", fields: [authorId], references: [id], onDelete: Cascade)
+  professional   Professional        @relation("ProfessionalReplies", fields: [professionalId], references: [id], onDelete: Cascade)
+  parentReply    ProfessionalReply?  @relation("ProfessionalReplyReplies", fields: [parentReplyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  childReplies   ProfessionalReply[] @relation("ProfessionalReplyReplies")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model FAQ {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  question   String
+  answer     String
+  order      Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model InfoContent {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  key       String?  // Optional key for system docs like "terms", "privacy"
+  title     String
+  content   String
+  order     Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model Quiz {
+  id              String         @id @default(auto()) @map("_id") @db.ObjectId
+  title           String
+  description     String?
+  isActive        Boolean        @default(true)
+  isProOnboarding Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  questions       QuizQuestion[]
+  attempts        QuizAttempt[]
+  proAttempts     ProQuizAttempt[] @relation("QuizProAttempts")
+
+  @@index([isActive])
+}
+
+model QuizQuestion {
+  id      String @id @default(auto()) @map("_id") @db.ObjectId
+  quizId  String @db.ObjectId
+  text    String
+  options Json   // Array of { id: string, text: string, correct: boolean }
+  order   Int    @default(0)
+  quiz    Quiz   @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@index([quizId])
+}
+
+model QuizAttempt {
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String    @db.ObjectId
+  quizId         String    @db.ObjectId
+  score          Float
+  passed         Boolean
+  answers        Json
+  attemptedAt    DateTime  @default(now())
+  nextEligibleAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([quizId])
+}
+
+// ============================================
+// MODERATOR FUNCTIONALITY MODELS
+// ============================================
+
+// Comprehensive audit log for all moderator actions
+model ModerationAction {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  
+  // Who performed the action
+  moderatorId String   @db.ObjectId
+  moderator   User     @relation("ModeratorActions", fields: [moderatorId], references: [id], onDelete: Cascade)
+  
+  // What action was taken
+  actionType  String   // "warn", "flag", "block_conversation", "restrict_user", "escalate", "note", "message_user"
+  
+  // Target of the action
+  targetUserId         String?  @db.ObjectId
+  targetProfessionalId String?  @db.ObjectId
+  targetConversationId String?  @db.ObjectId
+  targetMessageId      String?  @db.ObjectId
+  
+  // Action details
+  reason      String
+  details     String?
+  severity    String   @default("normal") // "low", "normal", "high", "critical"
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  targetUser         User?         @relation("UserModerationActions", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetProfessional Professional? @relation("ProfessionalModerationActions", fields: [targetProfessionalId], references: [id], onDelete: SetNull)
+  
+  @@index([moderatorId])
+  @@index([actionType])
+  @@index([createdAt])
+  @@index([targetUserId])
+  @@index([targetProfessionalId])
+}
+
+// Track blocked conversations
+model ConversationBlock {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String   @db.ObjectId
+  
+  // Who blocked it
+  blockedBy      String   @db.ObjectId
+  moderator      User     @relation("ModeratorBlocks", fields: [blockedBy], references: [id], onDelete: Cascade)
+  
+  // Block details
+  reason         String
+  blockedAt      DateTime @default(now())
+  expiresAt      DateTime? // null = indefinite
+  isActive       Boolean  @default(true)
+  
+  // Unblock info
+  unblockedAt    DateTime?
+  unblockedBy    String?  @db.ObjectId
+  
+  @@index([conversationId])
+  @@index([isActive])
+  @@index([expiresAt])
+}
+
+// Temporary user restrictions (less severe than ban)
+model TemporaryRestriction {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  user        User     @relation("UserRestrictions", fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Restriction details
+  restrictionType String   // "messaging", "booking", "posting", "all"
+  reason          String
+  
+  // Who imposed it
+  imposedBy       String   @db.ObjectId
+  moderator       User     @relation("ModeratorRestrictions", fields: [imposedBy], references: [id], onDelete: Cascade)
+  
+  // Timing
+  startedAt       DateTime @default(now())
+  expiresAt       DateTime
+  isActive        Boolean  @default(true)
+  
+  // Removal info
+  removedAt       DateTime?
+  removedBy       String?  @db.ObjectId
+  
+  @@index([userId])
+  @@index([isActive])
+  @@index([expiresAt])
+}
+
+// User-visible warnings (separate from internal Notes)
+model UserWarning {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation("UserWarnings", fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Warning content
+  title     String
+  message   String
+  severity  String   @default("medium") // "low", "medium", "high"
+  
+  // Who issued it
+  issuedBy  String   @db.ObjectId
+  moderator User     @relation("ModeratorWarnings", fields: [issuedBy], references: [id], onDelete: Cascade)
+  
+  // Status
+  isRead    Boolean  @default(false)
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+
+model Notification {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  senderId   String?  @db.ObjectId
+  type       String
+  content    String
+  unread     Boolean  @default(true)
+  relatedId  String?
+  createdAt  DateTime @default(now())
+
+  user       User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  sender     User?    @relation("SentNotifications", fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([unread])
+}
+
+
+model PushSubscription {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  endpoint  String   @unique
+  keys      Json
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

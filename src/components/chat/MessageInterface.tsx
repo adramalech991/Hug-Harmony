@@ -1,0 +1,719 @@
+// src/components/chat/MessageInterface.tsx
+"use client";
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useSession } from "next-auth/react";
+import { useParams, useRouter } from "next/navigation";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
+import { motion } from "framer-motion";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import ChatHeader from "./ChatHeader";
+import MessageList from "./MessageList";
+import MessageInput from "./MessageInput";
+import ProposalDialog from "@/components/ProposalDialog";
+import TravelCalculatorDialog from "./TravelCalculatorDialog";
+import SimpleTravelCalculatorDialog from "./SimpleTravelCalculatorDialog";
+import NotesSidebar from "@/components/NotesSidebar";
+import type {
+  ChatMessage,
+  ConversationWithMessages,
+  Participant,
+} from "@/types/chat";
+
+const containerVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5 },
+  },
+};
+
+const MessageInterface: React.FC = () => {
+  const { data: session, status } = useSession();
+  const { id: conversationId } = useParams<{ id: string }>();
+  const router = useRouter();
+
+  // State
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [conversation, setConversation] =
+    useState<ConversationWithMessages | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isProfessional, setIsProfessional] = useState(false);
+  const [isProposalDialogOpen, setIsProposalDialogOpen] = useState(false);
+
+  const [proposalActionMessage, setProposalActionMessage] = useState<
+    string | null
+  >(null);
+  const [isNotesSidebarOpen, setIsNotesSidebarOpen] = useState(false);
+  const [isTravelCalculatorOpen, setIsTravelCalculatorOpen] = useState(false);
+  const [isSimpleTravelOpen, setIsSimpleTravelOpen] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+
+  // NEW: Edit message state
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(
+    null
+  );
+
+  // Refs for cleanup
+  const typingTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Computed values
+  const otherUser: Participant | undefined = conversation
+    ? conversation.user1?.id === session?.user?.id
+      ? conversation.user2
+      : conversation.user1
+    : undefined;
+
+  const otherUserId = otherUser?.id || null;
+  const professionalId = conversation?.professionalId || null;
+  const otherUserType: "user" | "professional" | null =
+    otherUser?.isProfessional ? "professional" : "user";
+
+  // WebSocket connection
+  const { isConnected, sendTyping, send } = useWebSocket({
+    conversationId,
+    enabled: status === "authenticated" && !!conversationId,
+    onNewMessage: useCallback((message: ChatMessage) => {
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === message.id)) {
+          return prev;
+        }
+        return [...prev, message];
+      });
+    }, []),
+    // NEW: Handle edit message from WebSocket
+    onEditMessage: useCallback((messageId: string, updatedText: string) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, text: updatedText, edited: true } : m
+        )
+      );
+    }, []),
+    // NEW: Handle delete message from WebSocket
+    onDeleteMessage: useCallback((messageId: string) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, deletedAt: new Date().toISOString() } : m
+        )
+      );
+    }, []),
+    onTyping: useCallback(
+      (typingUserId: string) => {
+        if (typingUserId === session?.user?.id) return;
+
+        setTypingUsers((prev) => new Set(prev).add(typingUserId));
+
+        const existingTimeout = typingTimeoutRef.current.get(typingUserId);
+        if (existingTimeout) {
+          clearTimeout(existingTimeout);
+        }
+
+        const timeout = setTimeout(() => {
+          setTypingUsers((prev) => {
+            const next = new Set(prev);
+            next.delete(typingUserId);
+            return next;
+          });
+          typingTimeoutRef.current.delete(typingUserId);
+        }, 3000);
+
+        typingTimeoutRef.current.set(typingUserId, timeout);
+      },
+      [session?.user?.id]
+    ),
+    onConnect: useCallback(() => {
+      console.log("Chat connected");
+    }, []),
+    onDisconnect: useCallback(() => {
+      console.log("Chat disconnected");
+    }, []),
+  });
+
+  // Check professional status
+  useEffect(() => {
+    const checkProfessionalStatus = async () => {
+      if (!session?.user?.id) return;
+      try {
+        const res = await fetch("/api/professionals/application?me=true", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setIsProfessional(data.status === "APPROVED");
+        }
+      } catch (error) {
+        console.error("Error checking professional status:", error);
+      }
+    };
+
+    if (status === "authenticated") {
+      checkProfessionalStatus();
+    }
+  }, [status, session?.user?.id]);
+
+  // Fetch conversation and messages
+  const fetchConversationAndMessages = useCallback(async () => {
+    if (status !== "authenticated" || !conversationId) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/conversations/${conversationId}?messages=true&limit=100`,
+        {
+          cache: "no-store",
+          credentials: "include",
+        }
+      );
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          router.push("/login");
+          return;
+        }
+        if (res.status === 404) {
+          toast.error("Conversation not found");
+          router.push("/dashboard/messaging");
+          return;
+        }
+        throw new Error("Failed to fetch conversation");
+      }
+
+      const data: ConversationWithMessages = await res.json();
+      setConversation(data);
+      setMessages(data.messages || []);
+
+      fetch(`/api/conversations/${conversationId}`, {
+        method: "PATCH",
+        credentials: "include",
+      }).catch(console.error);
+    } catch (error) {
+      console.error("Fetch error:", error);
+      toast.error("Failed to load conversation");
+    } finally {
+      setLoading(false);
+    }
+  }, [status, conversationId, router]);
+
+  useEffect(() => {
+    fetchConversationAndMessages();
+  }, [fetchConversationAndMessages]);
+
+  // Cleanup typing timeouts on unmount
+  useEffect(() => {
+    const timeoutMap = typingTimeoutRef.current;
+    return () => {
+      timeoutMap.forEach((timeout) => clearTimeout(timeout));
+      timeoutMap.clear();
+    };
+  }, []);
+
+  // Handle input change with typing indicator
+  const handleInputChange = useCallback(
+    (value: string) => {
+      setInput(value);
+      if (value.trim()) {
+        sendTyping();
+      }
+    },
+    [sendTyping]
+  );
+
+  // Handle file selection
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        if (!file.type.startsWith("image/")) {
+          toast.error("Only image files are allowed");
+          return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          toast.error("File size must be less than 5MB");
+          return;
+        }
+        const previewUrl = URL.createObjectURL(file);
+        setImagePreview(previewUrl);
+      }
+    },
+    []
+  );
+
+  // Cleanup image preview URL
+  useEffect(() => {
+    return () => {
+      if (imagePreview) {
+        URL.revokeObjectURL(imagePreview);
+      }
+    };
+  }, [imagePreview]);
+
+  // NEW: Handle edit - set the message to edit mode
+  const handleEdit = useCallback((message: ChatMessage) => {
+    setEditingMessage(message);
+    setInput(message.text);
+  }, []);
+
+  // NEW: Handle delete message
+  const handleDelete = useCallback(
+    async (messageId: string) => {
+      try {
+        const res = await fetch(`/api/messages/${messageId}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Failed to delete message");
+        }
+
+        // Update local state
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId
+              ? { ...m, deletedAt: new Date().toISOString() }
+              : m
+          )
+        );
+
+        // Broadcast via WebSocket
+        if (send) {
+          send({
+            action: "deleteMessage",
+            conversationId,
+            messageId,
+          });
+        }
+
+        toast.success("Message deleted");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to delete message"
+        );
+      }
+    },
+    [conversationId, send]
+  );
+
+  // NEW: Cancel edit mode
+  const cancelEdit = useCallback(() => {
+    setEditingMessage(null);
+    setInput("");
+  }, []);
+
+  // Send message (UPDATED to support editing)
+  const handleSend = useCallback(async () => {
+    // NEW: Edit flow
+    if (editingMessage) {
+      if (!input.trim()) {
+        toast.error("Message cannot be empty");
+        return;
+      }
+
+      setSending(true);
+      try {
+        const res = await fetch(`/api/messages/${editingMessage.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: input.trim() }),
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Failed to edit message");
+        }
+
+        const updatedMessage: ChatMessage = await res.json();
+
+        // Update local state
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === updatedMessage.id ? { ...updatedMessage, edited: true } : m
+          )
+        );
+
+        // Broadcast via WebSocket
+        if (send) {
+          send({
+            action: "editMessage",
+            conversationId,
+            messageId: editingMessage.id,
+            updatedText: input.trim(),
+          });
+        }
+
+        setEditingMessage(null);
+        setInput("");
+        toast.success("Message edited");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Failed to edit message"
+        );
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // Existing send flow (unchanged)
+    if (!input.trim() && !imagePreview) {
+      toast.error("Please enter a message or select an image");
+      return;
+    }
+    if (!session?.user?.id || !conversation || !send) {
+      toast.error("Please log in to send messages");
+      return;
+    }
+
+    setSending(true);
+    const recipientId =
+      conversation.userId1 === session.user.id
+        ? conversation.userId2
+        : conversation.userId1;
+
+    try {
+      let imageUrl: string | undefined;
+
+      if (imagePreview) {
+        const fileInput =
+          document.querySelector<HTMLInputElement>("#file-input");
+        const file = fileInput?.files?.[0];
+
+        if (file) {
+          const formData = new FormData();
+          formData.append("file", file);
+
+          const uploadRes = await fetch("/api/messages/upload", {
+            method: "POST",
+            body: formData,
+            credentials: "include",
+          });
+
+          if (!uploadRes.ok) {
+            const error = await uploadRes.json();
+            throw new Error(error.error || "Failed to upload image");
+          }
+
+          const uploadData = await uploadRes.json();
+          imageUrl = uploadData.url;
+        }
+      }
+
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId,
+          text: input.trim(),
+          recipientId,
+          imageUrl,
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to send message");
+      }
+
+      const newMessage: ChatMessage = await res.json();
+
+      // Optimistic update (local UI)
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMessage.id)) {
+          return prev;
+        }
+        const messageWithId: ChatMessage = {
+          ...newMessage,
+          conversationId: conversationId as string,
+        };
+        return [...prev, messageWithId];
+      });
+
+      // IMPORTANT: Broadcast via WebSocket so other participants receive it in real-time
+      send({
+        action: "sendMessage",
+        conversationId,
+        message: newMessage,
+      });
+
+      setInput("");
+      setImagePreview(null);
+      const fileInput = document.querySelector<HTMLInputElement>("#file-input");
+      if (fileInput) fileInput.value = "";
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to send message";
+      toast.error(message);
+    } finally {
+      setSending(false);
+    }
+  }, [
+    editingMessage,
+    input,
+    imagePreview,
+    session?.user?.id,
+    conversation,
+    conversationId,
+    send,
+  ]);
+
+  // Send proposal
+  const handleSendProposal = useCallback(
+    async (start: Date, end: Date, venue?: "host" | "visit") => {
+      if (!session?.user?.id || !conversation) {
+        toast.error("Please log in to send a proposal");
+        return;
+      }
+
+      setSending(true);
+      const recipientId =
+        conversation.userId1 === session.user.id
+          ? conversation.userId2
+          : conversation.userId1;
+
+      try {
+        const res = await fetch("/api/proposals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId,
+            userId: recipientId,
+            professionalId: professionalId,
+            startTime: start.toISOString(),
+            endTime: end.toISOString(),
+            venue,
+          }),
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "Failed to send proposal");
+        }
+
+        setIsProposalDialogOpen(false);
+        toast.success("Proposal sent successfully");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to send proposal";
+        toast.error(message);
+      } finally {
+        setSending(false);
+      }
+    },
+    [session?.user?.id, conversation, conversationId, professionalId]
+  );
+
+  // Handle proposal action (accept/reject)
+  const handleProposalAction = useCallback(
+    async (proposalId: string, action: "accepted" | "rejected") => {
+      if (!session?.user?.id) {
+        toast.error("Please log in to respond to the proposal");
+        return;
+      }
+
+      setSending(true);
+      try {
+        const res = await fetch(`/api/proposals/${proposalId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: action }),
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || `Failed to ${action} proposal`);
+        }
+
+        const data = await res.json();
+
+        setProposalActionMessage(`Proposal ${action}`);
+        setTimeout(() => setProposalActionMessage(null), 3000);
+
+        if (
+          action === "accepted" &&
+          data.proposal.initiator === "professional"
+        ) {
+          toast.success("Proposal accepted - appointment confirmed");
+        } else if (action === "accepted") {
+          toast.success("Appointment request accepted");
+        } else {
+          toast.success(
+            data.proposal.initiator === "professional"
+              ? "Proposal rejected"
+              : "Appointment request declined"
+          );
+        }
+
+        fetchConversationAndMessages();
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : `Failed to ${action} proposal`;
+        toast.error(message);
+      } finally {
+        setSending(false);
+      }
+    },
+    [session?.user?.id, fetchConversationAndMessages]
+  );
+
+
+
+  // Loading state
+  if (status === "loading" || loading) {
+    return (
+      <motion.div
+        className="p-4 space-y-6 max-w-7xl mx-auto"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <Card className="h-[calc(100vh-2rem)] flex flex-col shadow-lg">
+          <Skeleton className="p-4 border-b h-16 bg-[#F3CFC6]/20" />
+          <div className="p-4 flex-1 overflow-y-auto space-y-2">
+            {[...Array(5)].map((_, i) => (
+              <div
+                key={i}
+                className={`flex ${i % 2 === 0 ? "justify-start" : "justify-end"}`}
+              >
+                <Skeleton className="h-12 w-48 rounded-lg bg-[#C4C4C4]/50" />
+              </div>
+            ))}
+          </div>
+          <div className="p-4 border-t flex items-center">
+            <Skeleton className="flex-1 h-10 mr-2 bg-[#C4C4C4]/50" />
+            <Skeleton className="h-10 w-20 bg-[#C4C4C4]/50" />
+          </div>
+        </Card>
+      </motion.div>
+    );
+  }
+
+  // Unauthenticated state
+  if (!session) {
+    return (
+      <motion.div
+        className="p-4 space-y-6 max-w-7xl mx-auto"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <Card className="h-[calc(100vh-2rem)] flex flex-col shadow-lg">
+          <div className="flex-1 flex items-center justify-center text-[#C4C4C4]">
+            Please log in to view messages.
+          </div>
+        </Card>
+      </motion.div>
+    );
+  }
+
+  // Conversation not found state
+  if (!conversation) {
+    return (
+      <motion.div
+        className="p-4 space-y-6 max-w-7xl mx-auto"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <Card className="h-[calc(100vh-2rem)] flex flex-col shadow-lg">
+          <div className="flex-1 flex items-center justify-center text-[#C4C4C4]">
+            Conversation not found.
+          </div>
+        </Card>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div
+      className="p-4 space-y-6 max-w-7xl mx-auto relative"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
+      <Card className="h-[calc(100vh-2rem)] flex flex-col shadow-lg">
+        <ChatHeader
+          otherUser={otherUser}
+          onNotesClick={() => setIsNotesSidebarOpen(true)}
+          isConnected={isConnected}
+          professionalId={professionalId}
+        />
+        <MessageList
+          messages={messages}
+          sessionUserId={session.user.id}
+          handleProposalAction={handleProposalAction}
+          sending={sending}
+          proposalActionMessage={proposalActionMessage}
+          typingUsers={typingUsers}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+        <MessageInput
+          input={input}
+          setInput={handleInputChange}
+          imagePreview={imagePreview}
+          setImagePreview={setImagePreview}
+          handleSend={handleSend}
+          handleFileChange={handleFileChange}
+          sending={sending}
+          isProfessional={isProfessional}
+          setIsProposalDialogOpen={setIsProposalDialogOpen}
+          editingMessage={editingMessage}
+          cancelEdit={cancelEdit}
+          setIsTravelCalculatorOpen={setIsTravelCalculatorOpen}
+          setIsSimpleTravelOpen={setIsSimpleTravelOpen}
+        />
+      </Card>
+
+      <NotesSidebar
+        isOpen={isNotesSidebarOpen}
+        onClose={() => setIsNotesSidebarOpen(false)}
+        targetId={otherUserId}
+        targetType={otherUserType}
+      />
+
+      <ProposalDialog
+        isOpen={isProposalDialogOpen}
+        setIsOpen={setIsProposalDialogOpen}
+        handleSendProposal={handleSendProposal}
+        sending={sending}
+        professionalId={professionalId!}
+      />
+
+
+
+      <TravelCalculatorDialog
+        isOpen={isTravelCalculatorOpen}
+        setIsOpen={setIsTravelCalculatorOpen}
+        conversationId={conversationId as string}
+        onSuccess={(message) => {
+          setMessages((prev) => [...prev, message as ChatMessage]);
+        }}
+      />
+
+      <SimpleTravelCalculatorDialog
+        isOpen={isSimpleTravelOpen}
+        setIsOpen={setIsSimpleTravelOpen}
+        conversationId={conversationId as string}
+        onSuccess={(message) => {
+          setMessages((prev) => [...prev, message as ChatMessage]);
+        }}
+      />
+    </motion.div>
+  );
+};
+
+export default MessageInterface;

@@ -1,0 +1,121 @@
+// C:\DEVELOPER\projects\hug-harmony\src\app\api\professionals\onboarding\status\route.ts
+
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
+import prisma from "@/lib/prisma";
+
+export async function GET() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.id;
+
+    const application = await prisma.professionalApplication.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        status: true,
+        submittedAt: true,
+        videoWatchedAt: true,
+        quizPassedAt: true,
+        professionalId: true,
+        isBadgePaid: true,
+        alreadyExperienced: true,
+      },
+    });
+
+    if (!application) {
+      // ✅ FIX: Changed "applications" to "application"
+      return NextResponse.json({ step: "FORM", application: null });
+    }
+
+    // Fetch video watch separately
+    const watch = await prisma.trainingVideoWatch.findFirst({
+      where: { applicationId: application.id },
+      include: { video: true },
+      orderBy: { lastWatchedAt: "desc" },
+    });
+
+    const video = watch
+      ? {
+        id: watch.video.id,
+        name: watch.video.name,
+        url: watch.video.url,
+        durationSec: watch.video.durationSec ?? 0,
+        watchedSec: watch.watchedSec,
+        isCompleted: watch.isCompleted,
+      }
+      : null;
+
+    // Fetch professional verification status
+    let isVerified = false;
+    if (application.professionalId) {
+      const professional = await prisma.professional.findUnique({
+        where: { id: application.professionalId },
+        select: { isVerified: true },
+      });
+      isVerified = professional?.isVerified ?? false;
+    }
+
+    // Fetch verified badge price
+    const badgePriceSetting = await prisma.companySettings.findUnique({
+      where: { key: "verifiedBadgePrice" },
+    });
+    const verifiedBadgePrice = badgePriceSetting ? badgePriceSetting.value : 29.0;
+
+    // ✅ FIX: Changed "applications" to "application"
+    return NextResponse.json({
+      step: application.status,
+      application: {
+        id: application.id,
+        status: application.status,
+        submittedAt: application.submittedAt,
+        videoWatchedAt: application.videoWatchedAt,
+        quizPassedAt: application.quizPassedAt,
+        professionalId: application.professionalId,
+        isBadgePaid: application.isBadgePaid,
+        isVerified,
+        alreadyExperienced: application.alreadyExperienced,
+      },
+      video,
+      verifiedBadgePrice,
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id, status } = await req.json();
+    if (!id || !status) {
+      return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+    }
+
+    await prisma.professionalApplication.update({
+      where: { id },
+      data: { status },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("PATCH error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}

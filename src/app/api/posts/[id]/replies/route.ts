@@ -1,0 +1,91 @@
+// src\app\api\posts\[id]\replies\route.ts
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import prisma from "@/lib/prisma";
+import { authOptions } from "@/lib/auth";
+
+export async function POST(request: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      console.error("POST /api/posts/[id]/replies: No session or user ID");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Extract post ID from the URL
+    const url = new URL(request.url);
+    const segments = url.pathname.split("/");
+    const id = segments[segments.length - 2]; // Updated: Get segment before "replies"
+
+    if (!id || !/^[0-9a-fA-F]{24}$/.test(id)) {
+      // Updated: Validate ObjectID format
+      console.error("POST /api/posts/[id]/replies: Invalid post ID", { id });
+      return NextResponse.json({ error: "Invalid post ID" }, { status: 400 });
+    }
+
+    const { content, parentReplyId } = await request.json();
+    if (!content) {
+      console.error("POST /api/posts/[id]/replies: Missing content", {
+        content,
+        parentReplyId,
+      });
+      return NextResponse.json(
+        { error: "Missing required field: content" },
+        { status: 400 }
+      );
+    }
+
+    const post = await prisma.post.findUnique({ where: { id } });
+    if (!post) {
+      console.error("POST /api/posts/[id]/replies: Post not found", {
+        postId: id,
+      });
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
+    }
+
+    if (parentReplyId) {
+      const parentReply = await prisma.reply.findUnique({
+        where: { id: parentReplyId },
+      });
+      if (!parentReply) {
+        console.error("POST /api/posts/[id]/replies: Parent reply not found", {
+          parentReplyId,
+        });
+        return NextResponse.json(
+          { error: "Parent reply not found" },
+          { status: 404 }
+        );
+      }
+    }
+
+    const reply = await prisma.reply.create({
+      data: {
+        content,
+        postId: id,
+        authorId: session.user.id,
+        parentReplyId: parentReplyId || null,
+      },
+    });
+
+    return NextResponse.json(
+      {
+        id: reply.id,
+        content: reply.content,
+        author: {
+          name: session.user.name || "Unknown",
+          avatar: session.user.image || "/assets/images/avatar-placeholder.png",
+        },
+        timestamp: reply.createdAt.toLocaleString(),
+        parentReplyId: reply.parentReplyId || undefined,
+        childReplies: [],
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    console.error("POST /api/posts/[id]/replies error:", error);
+    return NextResponse.json(
+      { error: "Failed to create reply" },
+      { status: 500 }
+    );
+  }
+}

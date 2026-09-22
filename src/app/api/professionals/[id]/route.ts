@@ -1,0 +1,290 @@
+// src/app/api/professionals/[id]/route.ts
+
+
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+import prisma from "@/lib/prisma";
+import { VenueType } from "@prisma/client";
+import { authOptions } from "@/lib/auth";
+
+/* --------------------------------------------------------------
+   GET – fetch a professional + metrics
+   -------------------------------------------------------------- */
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  if (!id || !/^[0-9a-fA-F]{24}$/.test(id)) {
+    return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+  }
+
+  try {
+    const professional = await prisma.professional.findUnique({
+      where: { id },
+      include: {
+        applications: {
+          select: {
+            user: {
+              select: {
+                lastOnline: true,
+                profileImage: true,
+                relationshipStatus: true,
+                orientation: true,
+                height: true,
+                ethnicity: true,
+                zodiacSign: true,
+                favoriteColor: true,
+                favoriteMedia: true,
+                petOwnership: true,
+                biography: true,
+                photos: {
+                  select: {
+                    id: true,
+                    url: true,
+                  },
+                  orderBy: { createdAt: "desc" },
+                },
+              },
+            },
+          },
+        },
+        reviews: {
+          select: {
+            id: true,
+            rating: true,
+            reviewer: {
+              select: {
+                name: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+            createdAt: true,
+            feedback: true,
+          },
+        },
+        discounts: {
+          select: {
+            id: true,
+            name: true,
+            rate: true,
+            discount: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+    });
+
+    if (!professional) {
+      return NextResponse.json(
+        { error: "Professional not found" },
+        { status: 404 }
+      );
+    }
+
+    const user = professional.applications?.[0]?.user;
+    const lastOnline = user?.lastOnline || null;
+
+    return NextResponse.json({
+      id: professional.id,
+      name: professional.name,
+      image: user?.profileImage || professional.image || "",
+      location: professional.location || "",
+      biography: professional.biography || "",
+      rate: professional.rate,
+      offersVideo: professional.offersVideo,
+      videoRate: professional.videoRate,
+      venue: professional.venue || "both",
+      rating: professional.rating || 0,
+      reviewCount: professional.reviewCount || 0,
+      lastOnline,
+      relationshipStatus: user?.relationshipStatus || "",
+      orientation: user?.orientation || "",
+      height: user?.height || "",
+      ethnicity: user?.ethnicity || "",
+      zodiacSign: user?.zodiacSign || "",
+      favoriteColor: user?.favoriteColor || "",
+      favoriteMedia: user?.favoriteMedia || "",
+      petOwnership: user?.petOwnership || "",
+      photos: user?.photos || [],
+      discounts: professional.discounts,
+      // NEW: Include payment acceptance methods
+      paymentAcceptanceMethods: professional.paymentAcceptanceMethods || [],
+      reviews: professional.reviews.map((r) => ({
+        id: r.id,
+        rating: r.rating,
+        feedback: r.feedback,
+        reviewerName:
+          r.reviewer.name ||
+          `${r.reviewer.firstName || ""} ${r.reviewer.lastName || ""}`.trim() ||
+          "Anonymous",
+        createdAt: r.createdAt.toISOString(),
+      })),
+    });
+  } catch (error: unknown) {
+    console.error("Error fetching professional:", error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
+/* --------------------------------------------------------------
+   PATCH – update biography / rate / venue / paymentAcceptanceMethods
+   -------------------------------------------------------------- */
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  if (!id) {
+    return NextResponse.json(
+      { error: "Missing professional ID" },
+      { status: 400 }
+    );
+  }
+
+  // ---- ownership check ----
+  const app = await prisma.professionalApplication.findFirst({
+    where: {
+      professionalId: id,
+      userId: session.user.id,
+    },
+    select: { status: true },
+  });
+
+  if (!app || app.status !== "APPROVED") {
+    return NextResponse.json(
+      { error: "Forbidden: Not an approved professional" },
+      { status: 403 }
+    );
+  }
+
+  // ---- parse body ----
+  let body: {
+    biography?: string;
+    rate?: number;
+    offersVideo?: boolean;
+    videoRate?: number;
+    venue?: string;
+    paymentAcceptanceMethods?: string[];
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const { biography, rate, offersVideo, videoRate, venue, paymentAcceptanceMethods } = body;
+
+  // ---- validation ----
+  if (
+    biography !== undefined &&
+    (typeof biography !== "string" || biography.length > 500)
+  ) {
+    return NextResponse.json(
+      { error: "Biography must be ≤ 500 chars" },
+      { status: 400 }
+    );
+  }
+  if (rate !== undefined && (isNaN(rate) || rate <= 0 || rate > 10000)) {
+    return NextResponse.json(
+      { error: "Rate must be 0.01–10,000" },
+      { status: 400 }
+    );
+  }
+  if (offersVideo !== undefined && typeof offersVideo !== "boolean") {
+    return NextResponse.json(
+      { error: "offersVideo must be a boolean" },
+      { status: 400 }
+    );
+  }
+  if (videoRate !== undefined && videoRate !== null && (isNaN(videoRate) || videoRate <= 0 || videoRate > 10000)) {
+    return NextResponse.json(
+      { error: "Video rate must be 0.01–10,000" },
+      { status: 400 }
+    );
+  }
+  if (venue !== undefined && !["host", "visit", "both"].includes(venue)) {
+    return NextResponse.json({ error: "Invalid venue" }, { status: 400 });
+  }
+
+  // NEW: Validate payment acceptance methods
+  if (paymentAcceptanceMethods !== undefined) {
+    if (!Array.isArray(paymentAcceptanceMethods)) {
+      return NextResponse.json(
+        { error: "paymentAcceptanceMethods must be an array" },
+        { status: 400 }
+      );
+    }
+
+    const validMethods = [
+      "cash",
+      "credit_card",
+      "debit_card",
+      "zelle",
+      "venmo",
+      "paypal",
+      "apple_pay",
+      "google_pay",
+      "cashapp",
+      "check",
+    ];
+
+    const invalidMethods = paymentAcceptanceMethods.filter(
+      (m: string) => !validMethods.includes(m)
+    );
+
+    if (invalidMethods.length > 0) {
+      return NextResponse.json(
+        { error: `Invalid payment methods: ${invalidMethods.join(", ")}` },
+        { status: 400 }
+      );
+    }
+  }
+
+  // ---- update ----
+  try {
+    const updated = await prisma.professional.update({
+      where: { id },
+      data: {
+        biography: biography ?? undefined,
+        rate: rate ?? undefined,
+        offersVideo: offersVideo ?? undefined,
+        videoRate: videoRate ?? undefined,
+        venue: venue ? (venue as VenueType) : undefined,
+        paymentAcceptanceMethods: paymentAcceptanceMethods ?? undefined,
+      },
+      select: {
+        id: true,
+        biography: true,
+        rate: true,
+        offersVideo: true,
+        videoRate: true,
+        venue: true,
+        paymentAcceptanceMethods: true,
+      },
+    });
+
+    return NextResponse.json(updated);
+  } catch (err: unknown) {
+    console.error("Error updating professional:", err);
+    return NextResponse.json(
+      { error: "Failed to update professional" },
+      { status: 500 }
+    );
+  }
+}

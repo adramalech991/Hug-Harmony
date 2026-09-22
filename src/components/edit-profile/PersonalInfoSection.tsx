@@ -1,0 +1,807 @@
+
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+} from "@/components/ui/select";
+import { ProfilePictureUpload } from "./ProfilePictureUpload";
+import { LocationAutocomplete } from "./LocationAutocomplete";
+import { Profile } from "@/types/edit-profile";
+import { motion } from "framer-motion";
+import {
+  User,
+  Phone,
+  MapPin,
+  FileText,
+  Heart,
+  Compass,
+  Ruler,
+  Users,
+  Star,
+  Palette,
+  Film,
+  PawPrint,
+  Pencil,
+  X,
+  Save,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  RefreshCw,
+  LucideIcon,
+  Clock,
+  Languages,
+} from "lucide-react";
+import { COMMON_TIMEZONES } from "@/lib/timezones";
+
+interface FieldConfig {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  required?: boolean;
+  maxLength?: number;
+  type?: string;
+  isLocation?: boolean;
+  isTextarea?: boolean;
+  isSelect?: boolean;
+  isTimezone?: boolean;
+  isLanguages?: boolean;
+  options?: string[] | { label: string; value: string }[];
+  placeholder?: string;
+}
+
+interface Props {
+  profile: Profile;
+  setProfile: (p: Profile) => void;
+  isEditing: boolean;
+  setIsEditing: (v: boolean) => void;
+  updating: boolean;
+  selectedFile: File | null;
+  setSelectedFile: (f: File | null) => void;
+  formErrors: Record<string, string>;
+  handleSubmit: (e: React.FormEvent) => Promise<void>;
+}
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.03 },
+  },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
+};
+
+// Field configuration for cleaner rendering
+const FIELD_CONFIG = {
+  basic: [
+    {
+      key: "firstName",
+      label: "First Name",
+      icon: User,
+      required: true,
+      maxLength: 50,
+    },
+    {
+      key: "lastName",
+      label: "Last Name",
+      icon: User,
+      required: true,
+      maxLength: 50,
+    },
+  ],
+  contact: [
+    { key: "phoneNumber", label: "Phone Number", icon: Phone, type: "tel" },
+    { key: "location", label: "Location 1", icon: MapPin, isLocation: true },
+    { key: "location2", label: "Location 2", icon: MapPin, isLocation: true },
+    {
+      key: "timezone",
+      label: "Timezone",
+      icon: Clock,
+      isTimezone: true,
+    },
+  ],
+  about: [
+    {
+      key: "biography",
+      label: "Bio",
+      icon: FileText,
+      isTextarea: true,
+      maxLength: 500,
+    },
+  ],
+  personal: [
+    {
+      key: "sex",
+      label: "Sex",
+      icon: Users,
+      isSelect: true,
+      options: ["Male", "Female", "Other", "Prefer not to say"],
+    },
+    {
+      key: "relationshipStatus",
+      label: "Relationship Status",
+      icon: Heart,
+      isSelect: true,
+      options: [
+        "Single",
+        "In a relationship",
+        "Married",
+        "Divorced",
+        "Widowed",
+        "Prefer not to say",
+      ],
+    },
+    {
+      key: "orientation",
+      label: "Orientation",
+      icon: Compass,
+      isSelect: true,
+      options: [
+        "Heterosexual",
+        "Homosexual",
+        "Bisexual",
+        "Asexual",
+        "Other",
+        "Prefer not to say",
+      ],
+    },
+    {
+      key: "height",
+      label: "Height",
+      icon: Ruler,
+      placeholder: "e.g., 5'10 or 178 cm",
+      maxLength: 20,
+    },
+    { key: "ethnicity", label: "Ethnicity", icon: Users, maxLength: 50 },
+    {
+      key: "languages",
+      label: "Languages Spoken",
+      icon: Languages,
+      isLanguages: true,
+      placeholder: "Press Enter to add...",
+    },
+  ],
+  preferences: [
+    {
+      key: "zodiacSign",
+      label: "Zodiac Sign",
+      icon: Star,
+      isSelect: true,
+      options: [
+        "Aries",
+        "Taurus",
+        "Gemini",
+        "Cancer",
+        "Leo",
+        "Virgo",
+        "Libra",
+        "Scorpio",
+        "Sagittarius",
+        "Capricorn",
+        "Aquarius",
+        "Pisces",
+      ],
+    },
+    {
+      key: "favoriteColor",
+      label: "Favorite Color",
+      icon: Palette,
+      maxLength: 30,
+    },
+    {
+      key: "favoriteMedia",
+      label: "Favorite Movie/TV Show",
+      icon: Film,
+      maxLength: 100,
+    },
+    {
+      key: "petOwnership",
+      label: "Pet Ownership",
+      icon: PawPrint,
+      isSelect: true,
+      options: ["Dog", "Cat", "Other", "None"],
+    },
+  ],
+};
+
+// Reusable Field Display Component (View Mode)
+function FieldDisplay({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | null | undefined;
+  icon: React.ElementType;
+}) {
+  const hasValue = value && value.trim() !== "";
+
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
+      <div className="h-9 w-9 rounded-full bg-[#F3CFC6]/20 flex items-center justify-center flex-shrink-0">
+        <Icon className="h-4 w-4 text-[#F3CFC6]" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
+          {label}
+        </p>
+        <p
+          className={`text-sm mt-0.5 break-words ${hasValue ? "text-black" : "text-gray-400 italic"
+            }`}
+        >
+          {hasValue ? value : "Not provided"}
+        </p>
+      </div>
+      {hasValue && (
+        <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-1" />
+      )}
+    </div>
+  );
+}
+
+function LanguagesDisplay({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string[] | null | undefined;
+  icon: React.ElementType;
+}) {
+  const hasValue = value && value.length > 0;
+
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
+      <div className="h-9 w-9 rounded-full bg-[#F3CFC6]/20 flex items-center justify-center flex-shrink-0">
+        <Icon className="h-4 w-4 text-[#F3CFC6]" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
+          {label}
+        </p>
+        <div className="flex flex-wrap gap-1.5 mt-1">
+          {hasValue ? (
+            value.map((lang) => (
+              <Badge
+                key={lang}
+                variant="outline"
+                className="bg-white border-[#F3CFC6]/30 text-gray-700"
+              >
+                {lang}
+              </Badge>
+            ))
+          ) : (
+            <p className="text-sm text-gray-400 italic">Not provided</p>
+          )}
+        </div>
+      </div>
+      {hasValue && (
+        <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-1" />
+      )}
+    </div>
+  );
+}
+
+// Reusable Field Input Component (Edit Mode)
+function FieldInput({
+  field,
+  profile,
+  setProfile,
+  updating,
+  error,
+}: {
+  field: FieldConfig;
+  profile: Profile;
+  setProfile: (p: Profile) => void;
+  updating: boolean;
+  error?: string;
+}) {
+  const Icon = field.icon;
+  const value = (profile[field.key as keyof Profile] as string) || "";
+
+  const handleChange = (newValue: string) => {
+    setProfile({ ...profile, [field.key]: newValue });
+  };
+
+  const handleLanguageAdd = (lang: string) => {
+    if (!lang.trim()) return;
+    const current = (profile[field.key as keyof Profile] as string[]) || [];
+    if (!current.includes(lang.trim())) {
+      setProfile({ ...profile, [field.key]: [...current, lang.trim()] });
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label
+        htmlFor={field.key}
+        className="text-sm font-medium text-gray-700 flex items-center gap-2"
+      >
+        <Icon className="h-4 w-4 text-[#F3CFC6]" />
+        {field.label}
+        {field.required && <span className="text-red-500">*</span>}
+      </Label>
+
+      {field.isLocation ? (
+        <LocationAutocomplete
+          name={field.key}
+          value={value}
+          onChange={handleChange}
+          disabled={updating}
+        />
+      ) : field.isTimezone ? (
+        <div className="flex gap-2">
+          <Input
+            value={value || "Not set"}
+            readOnly
+            className="bg-gray-50 border-gray-200 text-gray-500"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              handleChange(tz);
+              // We can't use toast here easily as it's not passed, but the value update is visible
+            }}
+            disabled={updating}
+            className="shrink-0 border-[#F3CFC6] text-gray-700 hover:bg-[#F3CFC6]/10"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Auto-Detect
+          </Button>
+        </div>
+      ) : field.isTextarea ? (
+        <div className="space-y-1">
+          <Textarea
+            id={field.key}
+            name={field.key}
+            value={value}
+            onChange={(e) => handleChange(e.target.value)}
+            disabled={updating}
+            maxLength={field.maxLength}
+            placeholder={field.placeholder}
+            className="border-gray-200 focus:border-[#F3CFC6] focus:ring-[#F3CFC6]/20 min-h-[100px] resize-none"
+          />
+          {field.maxLength && (
+            <p className="text-xs text-gray-400 text-right">
+              {value.length}/{field.maxLength}
+            </p>
+          )}
+        </div>
+      ) : field.isSelect ? (
+        <Select
+          name={field.key}
+          value={value}
+          onValueChange={handleChange}
+          disabled={updating}
+        >
+          <SelectTrigger className="border-gray-200 focus:border-[#F3CFC6] focus:ring-[#F3CFC6]/20">
+            <SelectValue placeholder="Select..." />
+          </SelectTrigger>
+          <SelectContent>
+            {field.options?.map((option) => {
+              const value = typeof option === "string" ? option : option.value;
+              const label = typeof option === "string" ? option : option.label;
+              return (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      ) : (
+        <Input
+          id={field.key}
+          name={field.key}
+          type={field.type || "text"}
+          value={value}
+          onChange={(e) => handleChange(e.target.value)}
+          disabled={updating}
+          required={field.required}
+          maxLength={field.maxLength}
+          placeholder={field.placeholder}
+          className="border-gray-200 focus:border-[#F3CFC6] focus:ring-[#F3CFC6]/20"
+          onKeyDown={(e) => {
+            if (field.isLanguages && e.key === "Enter") {
+              e.preventDefault();
+              handleLanguageAdd((e.target as HTMLInputElement).value);
+              (e.target as HTMLInputElement).value = "";
+            }
+          }}
+        />
+      )}
+
+      {field.isLanguages && (
+        <div className="flex flex-wrap gap-2 mt-2">
+          {((profile[field.key as keyof Profile] as string[]) || []).map(
+            (lang) => (
+              <Badge
+                key={lang}
+                variant="secondary"
+                className="bg-[#F3CFC6]/20 text-gray-800 hover:bg-[#F3CFC6]/30 transition-colors py-1 pl-3 pr-2 flex items-center gap-1.5 group"
+              >
+                {lang}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current =
+                      (profile[field.key as keyof Profile] as string[]) || [];
+                    setProfile({
+                      ...profile,
+                      [field.key]: current.filter((l) => l !== lang),
+                    });
+                  }}
+                  className="p-0.5 rounded-full hover:bg-gray-200/50 transition-colors"
+                >
+                  <X className="h-3 w-3 text-gray-500 group-hover:text-red-500" />
+                </button>
+              </Badge>
+            )
+          )}
+          {((profile[field.key as keyof Profile] as string[]) || []).length ===
+            0 && (
+              <p className="text-xs text-gray-400 italic px-1">
+                No languages added yet. Type above and press Enter.
+              </p>
+            )}
+        </div>
+      )}
+
+      {error && (
+        <p className="text-red-500 text-xs flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Section Card Component
+function SectionCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="border-gray-200 shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold text-gray-800">
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">{children}</CardContent>
+    </Card>
+  );
+}
+
+export function PersonalInfoSection({
+  profile,
+  setProfile,
+  isEditing,
+  setIsEditing,
+  updating,
+  selectedFile,
+  setSelectedFile,
+  formErrors,
+  handleSubmit,
+}: Props) {
+  // Calculate profile completion
+  const allFields = [
+    ...FIELD_CONFIG.basic,
+    ...FIELD_CONFIG.contact,
+    ...FIELD_CONFIG.about,
+    ...FIELD_CONFIG.personal,
+    ...FIELD_CONFIG.preferences,
+  ];
+  const filledFields = allFields.filter((field) => {
+    const value = profile[field.key as keyof Profile];
+    return value && String(value).trim() !== "";
+  }).length;
+  const completionPercent = Math.round((filledFields / allFields.length) * 100);
+
+  return (
+    <div className="space-y-6">
+      {/* Section Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-black flex items-center gap-2">
+            <User className="h-5 w-5 text-[#F3CFC6]" />
+            Personal Details
+          </h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Manage your personal information
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Completion Badge */}
+          <Badge
+            variant="secondary"
+            className={`${completionPercent === 100
+              ? "bg-green-100 text-green-700"
+              : completionPercent >= 50
+                ? "bg-yellow-100 text-yellow-700"
+                : "bg-gray-100 text-gray-700"
+              }`}
+          >
+            {completionPercent}% Complete
+          </Badge>
+
+          {/* Edit Button (View Mode) */}
+          {!isEditing && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditing(true)}
+              className="rounded-full border-[#F3CFC6] text-gray-700 hover:bg-[#F3CFC6]/10"
+            >
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit Profile
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isEditing ? (
+        /* ==================== EDIT MODE ==================== */
+        <motion.form
+          onSubmit={handleSubmit}
+          className="space-y-6"
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          {/* Profile Picture */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Profile Picture">
+              <ProfilePictureUpload
+                profileImage={profile.profileImage}
+                selectedFile={selectedFile}
+                setSelectedFile={setSelectedFile}
+                isEditing={isEditing}
+                updating={updating}
+                error={formErrors.profileImage}
+              />
+            </SectionCard>
+          </motion.div>
+
+          {/* Basic Info */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Basic Information">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {FIELD_CONFIG.basic.map((field) => (
+                  <FieldInput
+                    key={field.key}
+                    field={field}
+                    profile={profile}
+                    setProfile={setProfile}
+                    updating={updating}
+                    error={formErrors[field.key]}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+          </motion.div>
+
+          {/* Contact Info */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Contact & Location">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {FIELD_CONFIG.contact.map((field) => (
+                  <FieldInput
+                    key={field.key}
+                    field={field}
+                    profile={profile}
+                    setProfile={setProfile}
+                    updating={updating}
+                    error={formErrors[field.key]}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+          </motion.div>
+
+          {/* About */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="About You">
+              {FIELD_CONFIG.about.map((field) => (
+                <FieldInput
+                  key={field.key}
+                  field={field}
+                  profile={profile}
+                  setProfile={setProfile}
+                  updating={updating}
+                  error={formErrors[field.key]}
+                />
+              ))}
+            </SectionCard>
+          </motion.div>
+
+          {/* Personal Details */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Personal Details">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {FIELD_CONFIG.personal.map((field) => (
+                  <FieldInput
+                    key={field.key}
+                    field={field}
+                    profile={profile}
+                    setProfile={setProfile}
+                    updating={updating}
+                    error={formErrors[field.key]}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+          </motion.div>
+
+          {/* Preferences */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Preferences & Interests">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {FIELD_CONFIG.preferences.map((field) => (
+                  <FieldInput
+                    key={field.key}
+                    field={field}
+                    profile={profile}
+                    setProfile={setProfile}
+                    updating={updating}
+                    error={formErrors[field.key]}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+          </motion.div>
+
+          {/* Action Buttons */}
+          <motion.div
+            variants={itemVariants}
+            className="flex justify-end gap-3 pt-4 border-t"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsEditing(false)}
+              disabled={updating}
+              className="rounded-full"
+            >
+              <X className="h-4 w-4 mr-2" />
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={updating}
+              className="bg-[#F3CFC6] hover:bg-[#e9bfb5] text-gray-800 rounded-full min-w-[120px]"
+            >
+              {updating ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </motion.div>
+        </motion.form>
+      ) : (
+        /* ==================== VIEW MODE ==================== */
+        <motion.div
+          className="space-y-6"
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+        >
+          {/* Basic Info */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Basic Information">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {FIELD_CONFIG.basic.map((field) => (
+                  <FieldDisplay
+                    key={field.key}
+                    label={field.label}
+                    value={profile[field.key as keyof Profile] as string}
+                    icon={field.icon}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+          </motion.div>
+
+          {/* Contact Info */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Contact & Location">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {FIELD_CONFIG.contact.map((field) => (
+                  <FieldDisplay
+                    key={field.key}
+                    label={field.label}
+                    value={profile[field.key as keyof Profile] as string}
+                    icon={field.icon}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+          </motion.div>
+
+          {/* About */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="About You">
+              {FIELD_CONFIG.about.map((field) => (
+                <FieldDisplay
+                  key={field.key}
+                  label={field.label}
+                  value={profile[field.key as keyof Profile] as string}
+                  icon={field.icon}
+                />
+              ))}
+            </SectionCard>
+          </motion.div>
+
+          {/* Personal Details */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Personal Details">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {FIELD_CONFIG.personal.map((field) =>
+                  field.isLanguages ? (
+                    <LanguagesDisplay
+                      key={field.key}
+                      label={field.label}
+                      value={profile[field.key as keyof Profile] as string[]}
+                      icon={field.icon}
+                    />
+                  ) : (
+                    <FieldDisplay
+                      key={field.key}
+                      label={field.label}
+                      value={profile[field.key as keyof Profile] as string}
+                      icon={field.icon}
+                    />
+                  )
+                )}
+              </div>
+            </SectionCard>
+          </motion.div>
+
+          {/* Preferences */}
+          <motion.div variants={itemVariants}>
+            <SectionCard title="Preferences & Interests">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {FIELD_CONFIG.preferences.map((field) => (
+                  <FieldDisplay
+                    key={field.key}
+                    label={field.label}
+                    value={profile[field.key as keyof Profile] as string}
+                    icon={field.icon}
+                  />
+                ))}
+              </div>
+            </SectionCard>
+          </motion.div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
